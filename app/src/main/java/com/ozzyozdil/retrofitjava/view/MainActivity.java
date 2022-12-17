@@ -17,11 +17,11 @@ import com.ozzyozdil.retrofitjava.service.CryptoAPI;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.CompositeDisposable;
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
+import io.reactivex.schedulers.Schedulers;
 import retrofit2.Retrofit;
+import retrofit2.adapter.rxjava2.RxJava2CallAdapterFactory;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 public class MainActivity extends AppCompatActivity {
@@ -49,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
         Gson gson = new GsonBuilder().setLenient().create(); // json oluşturmak için
         retrofit = new Retrofit.Builder()
                 .baseUrl(BASE_URL)
+                .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
                 .addConverterFactory(GsonConverterFactory.create(gson))  // CryptoModelde Jsondan bilgiyi nasıl aldığımızı bildiriyoruz
                 .build();
 
@@ -60,36 +61,27 @@ public class MainActivity extends AppCompatActivity {
 
         CryptoAPI cryptoAPI = retrofit.create(CryptoAPI.class);
 
-        Call<List<CryptoModel>> call = cryptoAPI.getData();
-        call.enqueue(new Callback<List<CryptoModel>>() {  // Gelen cevabı asenkron bir şekilde almamızı sağlar
-            @Override
-            public void onResponse(Call<List<CryptoModel>> call, Response<List<CryptoModel>> response) {  // Veri gelirse
+        compositeDisposable = new CompositeDisposable();
+        compositeDisposable.add(cryptoAPI.getData()
+                .subscribeOn(Schedulers.io())                // hangi thread da kayıt olma işleminin yapılacağını kontrol eder
+                .observeOn(AndroidSchedulers.mainThread())   // alınan sonuçları main thread de gösterir
+                .subscribe(this :: handleResponse));         // çıkan sonucu nerde ele alacığmızı kontrol eder
+    }
 
-                if (response.isSuccessful()){
+    private void handleResponse(List<CryptoModel> cryptoModelList){
 
-                    List<CryptoModel> responseList = response.body();  // .body() API deki verileri alır.
-                    cryptoModels = new ArrayList<>(responseList);
+        cryptoModels = new ArrayList<>(cryptoModelList);
 
-                    // RecyclerView
-                    recyclerView.setLayoutManager(new LinearLayoutManager(MainActivity.this));
-                    recyclerViewAdapter = new RecyclerViewAdapter(cryptoModels);
-                    recyclerView.setAdapter(recyclerViewAdapter);
+        // RecyclerView
+        recyclerView.setLayoutManager(new LinearLayoutManager(MainActivity.this));
+        recyclerViewAdapter = new RecyclerViewAdapter(cryptoModels);
+        recyclerView.setAdapter(recyclerViewAdapter);
+    }
 
-                    /*
-                    // forEach
-                    for (CryptoModel cryptoModel : cryptoModels) {
-                        System.out.println(cryptoModel.currency + ": " + cryptoModel.price);
-                    }
-                     */
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
 
-                }
-            }
-
-            @Override
-            public void onFailure(Call<List<CryptoModel>> call, Throwable t) {   // Hata olursa
-
-                t.printStackTrace();
-            }
-        });
+        compositeDisposable.clear();
     }
 }
